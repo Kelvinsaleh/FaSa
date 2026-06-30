@@ -1,37 +1,35 @@
-use std::env;
-use std::net::TcpListener;
+use axum::{routing::post, Router};
 use sqlx::postgres::PgPoolOptions;
+use std::env;
+use std::net::SocketAddr;
+
+mod config;
+mod routes;
 
 #[tokio::main]
 async fn main() {
-    // 1. Fetch the Database URL injected by Render
     let database_url = env::var("DATABASE_URL")
         .expect("DATABASE_URL environment variable must be set");
 
-    println!("Connecting to Neon PostgreSQL database...");
-    
-    // 2. Connect to the Neon cluster and verify the connection
     let pool = PgPoolOptions::new()
         .max_connections(5)
         .connect(&database_url)
         .await
         .expect("Failed to connect to Neon database");
 
-    println!("Database connection successful! 🎉");
+    println!("Database connection verified! 🚀");
 
-    // 3. Fetch the network port from Render, defaulting to 10000 locally
+    // Build routes using handlers from our modular files
+    let app = Router::new()
+        .route("/api/auth/signup", post(routes::auth::signup_handler))
+        .route("/api/auth/signin", post(routes::auth::signin_handler))
+        .with_state(pool)
+        .layer(config::cors::build_cors_layer()); // Inject modular CORS settings
+
     let port = env::var("PORT").unwrap_or_else(|_| "10000".to_string());
-    let address = format!("0.0.0.0:{}", port);
+    let addr: SocketAddr = format!("0.0.0.0:{}", port).parse().expect("Invalid address format");
 
-    println!("Starting server on {}...", address);
-    let listener = TcpListener::bind(&address).expect("Failed to bind to network port");
-
-    println!("Server is active and listening for requests!");
-
-    // Keep the application running indefinitely
-    for stream in listener.incoming() {
-        if let Ok(_stream) = stream {
-            println!("Incoming connection detected!");
-        }
-    }
+    println!("Server operating securely on {}", addr);
+    let listener = tokio::net::TcpListener::bind(&addr).await.unwrap();
+    axum::serve(listener, app).await.unwrap();
 }
