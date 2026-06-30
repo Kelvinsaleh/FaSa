@@ -1,16 +1,9 @@
-use axum::{
-    extract::FromRequestParts,
-    http::request::Parts,
-    RequestPartsExt,
-};
-use axum_extra::headers::{authorization::Bearer, Authorization};
-use axum_extra::TypedHeader;
 use chrono::{Duration, Utc};
 use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::{error::AppError, state::AppState};
+use crate::error::AppError;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Claims {
@@ -48,29 +41,21 @@ pub fn verify_token(token: &str, secret: &str) -> Result<Claims, AppError> {
     Ok(data.claims)
 }
 
-/// Extractor that pulls the Bearer token from the Authorization header,
-/// verifies it, and yields the authenticated user's id.
+/// Authenticated user info, derived from a verified Bearer token.
 pub struct AuthUser {
     pub user_id: Uuid,
     pub email: String,
 }
 
-impl FromRequestParts<AppState> for AuthUser {
-    type Rejection = AppError;
-
-    async fn from_request_parts(parts: &mut Parts, state: &AppState) -> Result<Self, Self::Rejection> {
-        let TypedHeader(Authorization(bearer)) = parts
-            .extract::<TypedHeader<Authorization<Bearer>>>()
-            .await
-            .map_err(|_| AppError::Unauthorized)?;
-
-        let claims = verify_token(bearer.token(), &state.jwt_secret)?;
-
-        let user_id = Uuid::parse_str(&claims.sub).map_err(|_| AppError::Unauthorized)?;
-
-        Ok(AuthUser {
-            user_id,
-            email: claims.email,
-        })
-    }
+/// Verifies a raw bearer token string and returns the authenticated user.
+/// Handlers extract the token themselves via `TypedHeader<Authorization<Bearer>>`
+/// and pass `bearer.token()` in here -- avoids implementing a custom
+/// FromRequestParts extractor, which has fragile lifetime requirements.
+pub fn authenticate(bearer_token: &str, secret: &str) -> Result<AuthUser, AppError> {
+    let claims = verify_token(bearer_token, secret)?;
+    let user_id = Uuid::parse_str(&claims.sub).map_err(|_| AppError::Unauthorized)?;
+    Ok(AuthUser {
+        user_id,
+        email: claims.email,
+    })
 }

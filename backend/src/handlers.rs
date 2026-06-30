@@ -1,9 +1,11 @@
 use axum::{extract::State, Json};
+use axum_extra::headers::{authorization::Bearer, Authorization};
+use axum_extra::TypedHeader;
 use validator::Validate;
 
 use crate::{
     error::AppError,
-    jwt::{issue_token, AuthUser},
+    jwt::{authenticate, issue_token},
     models::{AuthResponse, LoginRequest, SignUpRequest, User, UserResponse},
     password::{hash_password, verify_password},
     state::AppState,
@@ -85,8 +87,10 @@ pub async fn login(
 
 pub async fn me(
     State(state): State<AppState>,
-    auth: AuthUser,
+    TypedHeader(Authorization(bearer)): TypedHeader<Authorization<Bearer>>,
 ) -> Result<Json<UserResponse>, AppError> {
+    let auth = authenticate(bearer.token(), &state.jwt_secret)?;
+
     let user = sqlx::query_as!(
         User,
         r#"SELECT id, name, email, password_hash, created_at, updated_at FROM users WHERE id = $1"#,
